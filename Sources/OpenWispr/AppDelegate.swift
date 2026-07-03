@@ -6,12 +6,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var recorder: AudioRecorder!
     var transcriber: Transcriber!
     var inserter: TextInserter!
+    var overlay = RecordingOverlay()
     var isPressed = false
     var isReady = false
+    var isToggleMode = true
+    // In toggle mode, tracks whether we're mid-recording between two taps.
+    var isRecordingActive = false
+    // Safety net so a forgotten toggle recording doesn't run forever.
+    var maxDurationTimer: Timer?
+    private let maxRecordingSeconds: TimeInterval = 5 * 60
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusBar = StatusBarController()
         recorder = AudioRecorder()
+        recorder.onLevel = { [weak self] level in
+            self?.overlay.update(level: level)
+        }
         inserter = TextInserter()
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -75,6 +85,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startListening(config: Config) {
+        isToggleMode = config.isToggleMode
         hotkeyManager = HotkeyManager(
             keyCode: config.hotkey.keyCode,
             modifiers: config.hotkey.modifierFlags
@@ -96,26 +107,75 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let hotkeyDesc = KeyCodes.describe(keyCode: config.hotkey.keyCode, modifiers: config.hotkey.modifiers)
         print("open-wispr v\(OpenWispr.version)")
         print("Hotkey: \(hotkeyDesc)")
+        print("Mode: \(isToggleMode ? "toggle" : "hold")")
         print("Model: \(config.modelSize)")
         print("Ready.")
     }
 
+    // MARK: - Hotkey handling
+
     private func handleKeyDown() {
-        guard isReady, !isPressed else { return }
-        isPressed = true
-        statusBar.state = .recording
-        do {
-            try recorder.startRecording()
-        } catch {
-            print("Error: \(error.localizedDescription)")
-            isPressed = false
-            statusBar.state = .idle
+        guard isReady else { return }
+
+        if isToggleMode {
+            // First tap starts, next tap stops.
+            if isRecordingActive {
+                stopAndTranscribe()
+            } else {
+                beginRecording()
+            }
+        } else {
+            guard !isPressed else { return }
+            isPressed = true
+            beginRecording()
         }
     }
 
     private func handleKeyUp() {
+        // In toggle mode the key release does nothing; stopping happens on the
+        // next press instead.
+        guard !isToggleMode else { return }
         guard isPressed else { return }
         isPressed = false
+        stopAndTranscribe()
+    }
+
+    // MARK: - Recording lifecycle
+
+    private func beginRecording() {
+        NSSound(named: .init("Tink"))?.play()
+        statusBar.state = .recording
+        do {
+            try recorder.startRecording()
+            isRecordingActive = true
+            overlay.show()
+            scheduleMaxDurationSafety()
+        } catch {
+            print("Error: \(error.localizedDescription)")
+            isPressed = false
+            isRecordingActive = false
+            statusBar.state = .idle
+        }
+    }
+
+    private func scheduleMaxDurationSafety() {
+        maxDurationTimer?.invalidate()
+        maxDurationTimer = Timer.scheduledTimer(withTimeInterval: maxRecordingSeconds, repeats: false) { [weak self] _ in
+            guard let self = self, self.isRecordingActive else { return }
+            print("Max recording duration reached — stopping.")
+            self.stopAndTranscribe()
+        }
+    }
+
+    private func stopAndTranscribe() {
+        guard isRecordingActive else { return }
+        isRecordingActive = false
+        isPressed = false
+        maxDurationTimer?.invalidate()
+        maxDurationTimer = nil
+
+        NSSound(named: .init("Pop"))?.play()
+        overlay.hide()
 
         guard let audioURL = recorder.stopRecording() else {
             statusBar.state = .idle

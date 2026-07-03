@@ -5,12 +5,21 @@ struct Config: Codable {
     var modelPath: String?
     var modelSize: String
     var language: String
+    // "toggle" = tap once to start, tap again to stop; "hold" = push-to-talk.
+    // Optional so configs written by older versions still decode.
+    var recordingMode: String?
+
+    // Defaults to toggle when unset (older configs and fresh installs).
+    var isToggleMode: Bool {
+        (recordingMode ?? "toggle").lowercased() != "hold"
+    }
 
     static let defaultConfig = Config(
         hotkey: HotkeyConfig(keyCode: 63, modifiers: []),
         modelPath: nil,
         modelSize: "base.en",
-        language: "en"
+        language: "en",
+        recordingMode: "toggle"
     )
 
     static var configDir: URL {

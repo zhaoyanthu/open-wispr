@@ -7,6 +7,9 @@ class AudioRecorder {
     private var isRecording = false
     private let outputURL: URL
 
+    // Called on the main queue with a normalized 0...1 input level for visualization.
+    var onLevel: ((Float) -> Void)?
+
     init() {
         outputURL = FileManager.default.temporaryDirectory.appendingPathComponent("open-wispr-recording.wav")
     }
@@ -60,6 +63,7 @@ class AudioRecorder {
 
             if error == nil && convertedBuffer.frameLength > 0 {
                 try? self.audioFile?.write(from: convertedBuffer)
+                self.reportLevel(from: convertedBuffer)
             }
         }
 
@@ -80,5 +84,26 @@ class AudioRecorder {
         isRecording = false
 
         return outputURL
+    }
+
+    private func reportLevel(from buffer: AVAudioPCMBuffer) {
+        guard let onLevel = onLevel,
+              let channel = buffer.floatChannelData?[0] else { return }
+
+        let frameCount = Int(buffer.frameLength)
+        var sum: Float = 0
+        for i in 0..<frameCount {
+            let sample = channel[i]
+            sum += sample * sample
+        }
+        let rms = frameCount > 0 ? sqrt(sum / Float(frameCount)) : 0
+
+        // Map RMS to a perceptual 0...1 range: speech rarely exceeds ~0.3 RMS,
+        // so scale up and clamp, then apply a curve so quieter speech still
+        // drives visible movement.
+        let scaled = min(1.0, rms * 7.5)
+        let level = powf(scaled, 0.5)
+
+        DispatchQueue.main.async { onLevel(level) }
     }
 }
