@@ -20,13 +20,22 @@ class Transcriber {
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: whisperPath)
-        process.arguments = [
+        var args = [
             "-m", modelPath,
             "-f", audioURL.path,
-            "-l", language,
             "--no-timestamps",
             "-nt",
         ]
+
+        // auto 模式显式传 -l auto，否则 whisper-cpp 默认英文
+        args += ["-l", language]
+
+        // 中文或自动检测模式：用 initial prompt 引导输出简体中文和标点符号
+        if language == "zh" || language == "auto" {
+            args += ["--prompt", "以下是简体中文的句子，包含标点符号。"]
+        }
+
+        process.arguments = args
 
         let pipe = Pipe()
         process.standardOutput = pipe
@@ -42,7 +51,8 @@ class Transcriber {
             throw TranscriberError.transcriptionFailed
         }
 
-        return output
+        // 追加一个尾随空格，使连续多次听写之间自然分隔
+        return output.isEmpty ? output : output + " "
     }
 
     static func findWhisperBinary() -> String? {
