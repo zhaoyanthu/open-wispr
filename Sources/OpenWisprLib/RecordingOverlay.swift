@@ -1,88 +1,251 @@
 import AppKit
 
-/// A small floating pill near the bottom of the screen that shows a live
-/// microphone-level visualization while recording, so the user can see they
-/// are being recorded. It never takes focus and ignores mouse events.
-class RecordingOverlay {
+/// A floating indicator that never takes keyboard focus. All calls are
+/// made on the main queue, including microphone-level updates.
+class RecordingOverlay: NSObject, NSWindowDelegate {
+    var onCloseIdleBar: (() -> Void)?
     private var window: NSPanel?
     private var visualizer: VisualizerView?
+    private var idleView: IdleBarView?
+    private var isReady = false
+    private var idleBarEnabled = false
+    private var isRecording = false
+    private var screenObserver: NSObjectProtocol?
+    private var positionSaveTimer: Timer?
+    private var isPositioning = false
 
     private static let overlaySize = NSSize(width: 148, height: 44)
+    private static let idleSize = NSSize(width: 56, height: 14)
+    private static let dockGap: CGFloat = 10
 
-    func show() {
-        DispatchQueue.main.async { [weak self] in
-            self?.buildIfNeeded()
-            guard let self = self, let window = self.window else { return }
-
-            self.reposition()
-            self.visualizer?.reset()
-            self.visualizer?.isActive = true
-
-            window.alphaValue = 0
-            window.orderFrontRegardless()
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.18
-                window.animator().alphaValue = 1
-            }
+    override init() {
+        super.init()
+        screenObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.refresh()
         }
     }
 
-    func hide() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self, let window = self.window else { return }
-            self.visualizer?.isActive = false
-            NSAnimationContext.runAnimationGroup({ ctx in
-                ctx.duration = 0.22
-                window.animator().alphaValue = 0
-            }, completionHandler: {
-                window.orderOut(nil)
-            })
+    deinit {
+        positionSaveTimer?.invalidate()
+        if let observer = screenObserver {
+            NotificationCenter.default.removeObserver(observer)
         }
+    }
+
+    func setReady(_ ready: Bool) {
+        isReady = ready
+        refresh()
+    }
+
+    func setIdleBarEnabled(_ enabled: Bool) {
+        idleBarEnabled = enabled
+        refresh()
+    }
+
+    func show() {
+        isRecording = true
+        visualizer?.reset()
+        refresh()
+    }
+
+    /// Ending recording restores the optional standby indicator immediately,
+    /// including while transcription is finishing.
+    func hide() {
+        isRecording = false
+        refresh()
     }
 
     func update(level: Float) {
+        guard isRecording else { return }
         visualizer?.push(level: level)
+    }
+
+    func resetPosition() {
+        positionSaveTimer?.invalidate()
+        positionSaveTimer = nil
+        var config = Config.load()
+        config.overlayPosition = nil
+        do {
+            try config.save()
+            refresh()
+        } catch {
+            NSLog("OpenWispr: Could not reset overlay position: %@", error.localizedDescription)
+        }
+    }
+
+    private func refresh() {
+        guard isRecording || (isReady && idleBarEnabled) else {
+            visualizer?.isActive = false
+            window?.orderOut(nil)
+            return
+        }
+        buildIfNeeded()
+        guard let window = window, let screen = window.screen ?? NSScreen.main else { return }
+        let size = isRecording ? Self.overlaySize : Self.idleSize
+        let frame = screen.visibleFrame
+        let saved = Config.load().overlayPosition
+        let defaultCenterY = frame.minY + Self.dockGap + size.height / 2
+        let centerX = saved.map { frame.minX + CGFloat($0.x) * frame.width } ?? frame.midX
+        let centerY = saved.map { frame.minY + CGFloat($0.y) * frame.height } ?? defaultCenterY
+        let x = min(max(centerX - size.width / 2, frame.minX), frame.maxX - size.width)
+        let y = min(max(centerY - size.height / 2, frame.minY + Self.dockGap), frame.maxY - size.height)
+        isPositioning = true
+        window.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: false)
+        isPositioning = false
+        window.hasShadow = isRecording
+        if isRecording {
+            visualizer?.frame = NSRect(origin: .zero, size: size)
+            window.contentView = visualizer
+        } else {
+            idleView?.frame = NSRect(origin: .zero, size: size)
+            window.contentView = idleView
+        }
+        visualizer?.isActive = isRecording
+        window.orderFrontRegardless()
+        window.contentView?.needsDisplay = true
+    }
+
+    func windowDidMove(_ notification: Notification) {
+        guard !isPositioning, let panel = window,
+              let screen = panel.screen ?? NSScreen.main else { return }
+        // AppKit lets a borderless panel move beyond the usable screen.
+        // Bring it back before saving, so both idle and recording states stay
+        // clear of the Dock throughout and after a drag.
+        let lowestY = screen.visibleFrame.minY + Self.dockGap
+        if panel.frame.minY < lowestY {
+            isPositioning = true
+            panel.setFrameOrigin(NSPoint(x: panel.frame.minX, y: lowestY))
+            isPositioning = false
+        }
+        positionSaveTimer?.invalidate()
+        positionSaveTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: false) { [weak self] _ in
+            self?.savePosition()
+        }
+    }
+
+    private func savePosition() {
+        guard let panel = window, let screen = panel.screen else { return }
+        let visible = screen.visibleFrame
+        guard visible.width > 0, visible.height > 0 else { return }
+        var config = Config.load()
+        config.overlayPosition = OverlayPosition(
+            x: Double((panel.frame.midX - visible.minX) / visible.width),
+            y: Double((panel.frame.midY - visible.minY) / visible.height)
+        )
+        do {
+            try config.save()
+        } catch {
+            NSLog("OpenWispr: Could not save overlay position: %@", error.localizedDescription)
+        }
     }
 
     private func buildIfNeeded() {
         guard window == nil else { return }
-
         let panel = NSPanel(
-            contentRect: NSRect(origin: .zero, size: RecordingOverlay.overlaySize),
+            contentRect: NSRect(origin: .zero, size: Self.overlaySize),
             styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
+            backing: .buffered, defer: false
         )
         panel.isFloatingPanel = true
         panel.level = .statusBar
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = true
-        panel.ignoresMouseEvents = true
+        panel.ignoresMouseEvents = false
+        panel.isMovableByWindowBackground = true
+        panel.delegate = self
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-
-        let vis = VisualizerView(frame: NSRect(origin: .zero, size: RecordingOverlay.overlaySize))
-        panel.contentView = vis
-
         window = panel
-        visualizer = vis
+        visualizer = VisualizerView(frame: NSRect(origin: .zero, size: Self.overlaySize))
+        idleView = IdleBarView(frame: NSRect(origin: .zero, size: Self.idleSize))
+        visualizer?.onDoubleClick = { [weak self] in self?.resetPosition() }
+        idleView?.onDoubleClick = { [weak self] in self?.resetPosition() }
+        idleView?.onClose = { [weak self] in self?.onCloseIdleBar?() }
+    }
+}
+
+/// A static, translucent pill. No timer or microphone is active for standby.
+private class IdleBarView: NSView {
+    var onDoubleClick: (() -> Void)?
+    var onClose: (() -> Void)?
+    private var isHovered = false
+    private var trackingArea: NSTrackingArea?
+
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea { removeTrackingArea(trackingArea) }
+        let area = NSTrackingArea(rect: .zero,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self, userInfo: nil)
+        addTrackingArea(area)
+        trackingArea = area
     }
 
-    private func reposition() {
-        guard let window = window,
-              let screen = NSScreen.main else { return }
-        let frame = screen.visibleFrame
-        let size = RecordingOverlay.overlaySize
-        let x = frame.midX - size.width / 2
-        let y = frame.minY + 96
-        window.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        needsDisplay = true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if isHovered && point.x >= bounds.maxX - 17 {
+            onClose?()
+        } else if event.clickCount >= 2 {
+            onDoubleClick?()
+        } else {
+            window?.performDrag(with: event)
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let pill = NSBezierPath(roundedRect: bounds, xRadius: 7, yRadius: 7)
+        NSColor(calibratedWhite: 0.14, alpha: 0.20).setFill()
+        pill.fill()
+        let mark = NSRect(x: isHovered ? 11 : bounds.midX - 13,
+                          y: bounds.midY - 1.5,
+                          width: isHovered ? 21 : 26, height: 3)
+        NSColor(calibratedWhite: 1, alpha: 0.58).setFill()
+        NSBezierPath(roundedRect: mark, xRadius: 1.5, yRadius: 1.5).fill()
+        if isHovered {
+            let button = NSRect(x: bounds.maxX - 14, y: 2, width: 10, height: 10)
+            NSColor(calibratedWhite: 0.12, alpha: 0.42).setFill()
+            NSBezierPath(ovalIn: button).fill()
+            let cross = NSBezierPath()
+            cross.move(to: NSPoint(x: button.minX + 3, y: button.minY + 3))
+            cross.line(to: NSPoint(x: button.maxX - 3, y: button.maxY - 3))
+            cross.move(to: NSPoint(x: button.minX + 3, y: button.maxY - 3))
+            cross.line(to: NSPoint(x: button.maxX - 3, y: button.minY + 3))
+            cross.lineWidth = 1.2
+            NSColor.white.setStroke()
+            cross.stroke()
+        }
     }
 }
 
 /// Draws a rounded translucent pill with a row of bars that react to the mic
 /// level. When inactive the bars settle to a flat resting state.
 private class VisualizerView: NSView {
+    var onDoubleClick: (() -> Void)?
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount >= 2 {
+            onDoubleClick?()
+        } else {
+            window?.performDrag(with: event)
+        }
+    }
     private let barCount = 13
     private var heights: [CGFloat]
     private var targets: [CGFloat]
@@ -93,7 +256,7 @@ private class VisualizerView: NSView {
 
     var isActive: Bool = false {
         didSet {
-            if isActive { startTimer() } else { /* keep animating down to rest */ }
+            if isActive { startTimer() } else { stopTimer(); reset() }
         }
     }
 

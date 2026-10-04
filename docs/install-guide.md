@@ -1,172 +1,57 @@
-# Installation Guide
+# Install OpenWispr from source
 
-## Quick Install
+This guide installs the version in the `zhaoyanthu/open-wispr` repository. It builds the macOS app locally instead of installing the upstream Homebrew release.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/human37/open-wispr/main/scripts/install.sh | bash
-```
+## Requirements
 
-The installer handles everything automatically — Homebrew tap, formula install, permissions, model download, and service startup.
+- macOS 13 or later
+- Homebrew
+- Swift 5.9 or later (install Xcode Command Line Tools with `xcode-select --install` if `swift` is unavailable)
 
-## What the installer does
-
-1. **Installs via Homebrew** — taps `human37/open-wispr` and installs the formula. Recent versions of Homebrew (6.0+) have tightened security around third-party taps, so you may be asked to trust the package first — the installer prints the exact `brew trust` command to run if so.
-2. **Copies the app bundle** to `~/Applications/OpenWispr.app`
-3. **Requests permissions** — Microphone and Accessibility
-4. **Downloads the Whisper model** (~142 MB, one-time)
-5. **Starts the background service** via `brew services`
-
-## Granting Permissions
-
-open-wispr needs two macOS permissions to work:
-
-### Microphone
-
-A system dialog will appear automatically during install. Click **Allow**.
-
-### Accessibility
-
-Accessibility permission lets open-wispr detect your hotkey globally. During install, a pop-up like this will appear:
-
-<p align="center">
-  <img width="465" alt="Accessibility permission prompt" src="https://github.com/user-attachments/assets/9a0533ae-c174-4395-9533-46b55c3cb592" />
-</p>
-
-Click it to jump directly to the Accessibility settings. Find **OpenWispr** in the list and toggle it **ON**:
-
-<p align="center">
-  <img width="711" alt="Accessibility settings with OpenWispr toggled on" src="https://github.com/user-attachments/assets/f8243e28-4fae-4aba-a030-5c4c66c3cf07" />
-</p>
-
-If you missed the pop-up, navigate there manually:
-
-> **System Settings → Privacy & Security → Accessibility**
-
-If `OpenWispr` doesn't appear in the list, click the **+** button and add it from `~/Applications/OpenWispr.app`.
-
-### Non-English macOS
-
-The permission steps are the same regardless of your system language. macOS translates the Settings UI automatically — only the app name **OpenWispr** stays the same.
-
-For reference, here's the path in a few languages:
-
-| Language | Path |
-|---|---|
-| English | System Settings → Privacy & Security → Accessibility |
-| Italian | Impostazioni di Sistema → Privacy e sicurezza → Accessibilità |
-| French | Réglages du système → Confidentialité et sécurité → Accessibilité |
-| German | Systemeinstellungen → Datenschutz & Sicherheit → Bedienungshilfen |
-| Spanish | Ajustes del Sistema → Privacidad y seguridad → Accesibilidad |
-| Portuguese | Ajustes do Sistema → Privacidade e Segurança → Acessibilidade |
-
-## Troubleshooting
-
-### "Timed out waiting for Accessibility permission"
-
-The installer waits up to 5 minutes for you to grant Accessibility. If it times out:
-
-1. Uninstall first:
-   ```bash
-   curl -fsSL https://raw.githubusercontent.com/human37/open-wispr/main/scripts/uninstall.sh | bash
-   ```
-2. Re-run the installer. Watch for the Accessibility pop-up and grant it promptly.
-
-### App not appearing in Accessibility list
-
-1. Open **System Settings → Privacy & Security → Accessibility**
-2. Click the **+** button
-3. Navigate to `~/Applications/` and select `OpenWispr.app`
-4. Toggle it **ON**
-
-### Microphone denied
-
-If you accidentally denied microphone access:
-
-1. Go to **System Settings → Privacy & Security → Microphone**
-2. Find **OpenWispr** and toggle it **ON**
-3. Re-run the installer
-
-### Globe key opens emoji picker
-
-If the Globe key (🌐) triggers the emoji picker instead of open-wispr:
-
-> **System Settings → Keyboard → "Press 🌐 key to" → "Do Nothing"**
-
-### Right Option hotkey also triggers from left Option
-
-If you set right Option (`keyCode: 61`) as the hotkey, open-wispr should only trigger from the physical right Option key. If left Option also triggers, update to the latest build.
-
-### Config resets to default after editing `config.json`
-
-If `config.json` has invalid JSON or unsupported values, open-wispr now prints a warning and falls back to defaults for that run, without overwriting your file. Fix the JSON and restart the service:
+## Install
 
 ```bash
-brew services restart open-wispr
+git clone https://github.com/zhaoyanthu/open-wispr.git
+cd open-wispr
+./scripts/install-from-source.sh
 ```
 
-## Language Support
+The script installs `whisper-cpp` if needed, builds OpenWispr, copies the app to `~/Applications/OpenWispr.app`, and registers a login item. OpenWispr launches when you log in. Choosing **Quit** from its menu bar menu keeps it closed until you open it from the Dock or log in again.
 
-open-wispr defaults to English, but Whisper supports many languages. To dictate in a different language, edit `~/.config/open-wispr/config.json`:
+## Grant macOS permissions
 
-1. Switch to a **multilingual model** (remove the `.en` suffix)
-2. Set the **language** to your [ISO 639-1 code](https://en.wikipedia.org/wiki/List_of_ISO_639-1_codes)
+OpenWispr needs microphone access to record speech and Accessibility access to detect the hotkey and insert text.
 
-For example, to use Italian:
+1. Allow microphone access when macOS asks.
+2. Open **System Settings → Privacy & Security → Accessibility**.
+3. Turn on **OpenWispr**. If it is missing, click **+**, choose `~/Applications/OpenWispr.app`, and enable it.
+4. Wait for the OpenWispr menu bar icon to show the waveform and for setup to finish. The default `small` model downloads automatically on first launch.
 
-```json
-{
-  "language": "it",
-  "modelSize": "base"
-}
+If OpenWispr remains on its lock icon, quit and reopen the app after enabling Accessibility. Check the log at `~/Library/Logs/OpenWispr/app.log` for the permission and startup status.
+
+## Use
+
+The default hotkey is Globe/Fn. In toggle mode, press it once to start recording and again to stop and transcribe. Fresh installs automatically detect the spoken language. To force English or Chinese, set `"language": "en"` or `"language": "zh"` in `~/.config/open-wispr/config.json`, then restart OpenWispr. Use the menu bar **Hotkey** submenu to choose Fn/Globe, Right Option, F5, or Right Command. If another app or input method uses Fn, remove that assignment so OpenWispr can receive it.
+
+Use **Model** to choose a Whisper model. The default is `small`; the app downloads other selected models as needed. Use **Show Standby Bar** to toggle the optional floating indicator. You can drag it, double-click to reset it, or hover and click × to hide it.
+
+## Update
+
+In the cloned repository:
+
+```bash
+git pull --ff-only
+./scripts/install-from-source.sh
 ```
-
-Then restart: `brew services restart open-wispr`
-
-The multilingual model will be downloaded automatically on next use.
-
-### Available models
-
-| Model | English-only | Multilingual | Size |
-|---|---|---|---|
-| tiny | `tiny.en` | `tiny` | ~75 MB |
-| base | `base.en` | `base` | ~142 MB |
-| small | `small.en` | `small` | ~466 MB |
-| medium | `medium.en` | `medium` | ~1.5 GB |
-| large (turbo) | — | `large-v3-turbo` | ~1.6 GB |
-| large (v3) | — | `large-v3` | ~3 GB |
-
-Larger models are more accurate but slower. `base` is a good starting point for most languages. There is no English-only large model upstream — pick `large-v3-turbo` for the fastest large-tier option (multilingual, near-large quality).
-
-Each model also has quantized variants at ~⅓–½ the size with minimal quality loss. See [MODELS.md](https://github.com/human37/open-wispr/blob/main/MODELS.md) for the complete list and tradeoffs.
-
-### Common language codes
-
-| Language | Code |
-|---|---|
-| English | `en` |
-| Italian | `it` |
-| French | `fr` |
-| German | `de` |
-| Spanish | `es` |
-| Portuguese | `pt` |
-| Japanese | `ja` |
-| Chinese | `zh` |
-| Korean | `ko` |
 
 ## Uninstall
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/human37/open-wispr/main/scripts/uninstall.sh | bash
-```
-
-This removes the service, formula, tap, config, models, app bundle, logs, and resets Accessibility permissions.
-
-## Build from Source
+Quit OpenWispr, then remove its login item and app:
 
 ```bash
-git clone https://github.com/human37/open-wispr.git
-cd open-wispr
-brew install whisper-cpp
-swift build -c release
-.build/release/open-wispr start
+launchctl bootout "gui/$(id -u)/com.human37.open-wispr" 2>/dev/null || true
+rm -f "$HOME/Library/LaunchAgents/com.human37.open-wispr.plist"
+rm -rf "$HOME/Applications/OpenWispr.app"
 ```
+
+These commands keep your configuration and downloaded models. They are stored in `~/.config/open-wispr/` and `~/Library/Application Support/open-wispr/`.
