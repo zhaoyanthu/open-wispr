@@ -15,6 +15,9 @@ public struct Config: Codable {
     public var toggleMode: FlexBool?
     public var audioInputDeviceID: UInt32?
     public var audioInputDeviceUID: String?
+    public var overlay: FlexBool?
+    public var standbyBar: FlexBool?
+    public var overlayPosition: OverlayPosition?
 
     public var hotkey: HotkeyConfig {
         get { hotkeys[0] }
@@ -46,6 +49,9 @@ public struct Config: Codable {
         case toggleMode
         case audioInputDeviceID
         case audioInputDeviceUID
+        case overlay
+        case standbyBar
+        case overlayPosition
     }
 
     public init(from decoder: Decoder) throws {
@@ -67,6 +73,9 @@ public struct Config: Codable {
         self.toggleMode = try c.decodeIfPresent(FlexBool.self, forKey: .toggleMode)
         self.audioInputDeviceID = try c.decodeIfPresent(UInt32.self, forKey: .audioInputDeviceID)
         self.audioInputDeviceUID = try c.decodeIfPresent(String.self, forKey: .audioInputDeviceUID)
+        self.overlay = try c.decodeIfPresent(FlexBool.self, forKey: .overlay)
+        self.standbyBar = try c.decodeIfPresent(FlexBool.self, forKey: .standbyBar)
+        self.overlayPosition = try c.decodeIfPresent(OverlayPosition.self, forKey: .overlayPosition)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -81,6 +90,9 @@ public struct Config: Codable {
         try c.encodeIfPresent(toggleMode, forKey: .toggleMode)
         try c.encodeIfPresent(audioInputDeviceID, forKey: .audioInputDeviceID)
         try c.encodeIfPresent(audioInputDeviceUID, forKey: .audioInputDeviceUID)
+        try c.encodeIfPresent(overlay, forKey: .overlay)
+        try c.encodeIfPresent(standbyBar, forKey: .standbyBar)
+        try c.encodeIfPresent(overlayPosition, forKey: .overlayPosition)
     }
 
     public init(
@@ -92,7 +104,10 @@ public struct Config: Codable {
         maxRecordings: Int?,
         toggleMode: FlexBool?,
         audioInputDeviceID: UInt32? = nil,
-        audioInputDeviceUID: String? = nil
+        audioInputDeviceUID: String? = nil,
+        overlay: FlexBool? = nil,
+        standbyBar: FlexBool? = nil,
+        overlayPosition: OverlayPosition? = nil
     ) {
         self.hotkeys = hotkeys.isEmpty
             ? [HotkeyConfig(keyCode: 63, modifiers: [])]
@@ -105,6 +120,9 @@ public struct Config: Codable {
         self.toggleMode = toggleMode
         self.audioInputDeviceID = audioInputDeviceID
         self.audioInputDeviceUID = audioInputDeviceUID
+        self.overlay = overlay
+        self.standbyBar = standbyBar
+        self.overlayPosition = overlayPosition
     }
 
     public static let supportedLanguages: [LanguageOption] = [
@@ -246,11 +264,12 @@ public struct Config: Codable {
     public static let defaultConfig = Config(
         hotkeys: [HotkeyConfig(keyCode: 63, modifiers: [])],
         modelPath: nil,
-        modelSize: "base.en",
-        language: "en",
+        modelSize: "small",
+        language: "auto",
         spokenPunctuation: FlexBool(false),
         maxRecordings: nil,
-        toggleMode: FlexBool(false)
+        toggleMode: FlexBool(true),
+        standbyBar: FlexBool(false)
     )
 
     public static var configDir: URL {
@@ -295,6 +314,16 @@ public struct Config: Codable {
         encoder.outputFormatting = .prettyPrinted
         let data = try encoder.encode(self)
         try data.write(to: Config.configFile)
+    }
+}
+
+public struct OverlayPosition: Codable {
+    public var x: Double
+    public var y: Double
+
+    public init(x: Double, y: Double) {
+        self.x = x
+        self.y = y
     }
 }
 

@@ -7,17 +7,32 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
     var transcriber: Transcriber!
     var inserter: TextInserter!
     var config: Config!
+    var overlay = RecordingOverlay()
     var isPressed = false
     var isReady = false
     public var lastTranscription: String?
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         statusBar = StatusBarController()
+        overlay.onCloseIdleBar = { [weak self] in
+            guard let self else { return }
+            var cfg = Config.load()
+            cfg.standbyBar = FlexBool(false)
+            try? cfg.save()
+            self.applyConfigChange(cfg)
+        }
         recorder = AudioRecorder()
+        recorder.onLevel = { [weak self] level in
+            self?.overlay.update(level: level)
+        }
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             self?.setup()
         }
+    }
+
+    private var overlayEnabled: Bool {
+        config?.overlay?.value ?? true
     }
 
     private func setup() {
@@ -144,6 +159,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         isReady = true
         statusBar.state = .idle
         statusBar.buildMenu()
+        overlay.setIdleBarEnabled(config.standbyBar?.value ?? false)
+        overlay.setReady(true)
 
         let hotkeyDesc = config.hotkeySummary()
         print("open-wispr v\(OpenWispr.version)")
@@ -178,6 +195,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         )
         let deviceChanged = recorder.preferredDeviceID != newDeviceID
         config = newConfig
+        overlay.setIdleBarEnabled(config.standbyBar?.value ?? false)
         recorder.preferredDeviceID = newDeviceID
         if deviceChanged {
             recorder.reload()
@@ -267,6 +285,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
                 outputURL = RecordingStore.newRecordingURL()
             }
             try recorder.startRecording(to: outputURL)
+            if overlayEnabled {
+                overlay.show()
+            }
         } catch {
             print("Error: \(error.localizedDescription)")
             isPressed = false
@@ -277,6 +298,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleRecordingStop() {
         guard isPressed else { return }
         isPressed = false
+
+        overlay.hide()
 
         guard let audioURL = recorder.stopRecording() else {
             statusBar.state = .idle

@@ -128,6 +128,30 @@ class StatusBarController: NSObject {
 
         menu.addItem(NSMenuItem.separator())
 
+        let hotkeyItem = NSMenuItem(title: "Hotkey: \(hotkeyDesc)", action: nil, keyEquivalent: "")
+        let hotkeySubmenu = NSMenu()
+        let hotkeyChoices: [(String, UInt16)] = [
+            ("Fn / Globe", 63),
+            ("Right Option", 61),
+            ("F5", 96),
+            ("Right Command", 54),
+        ]
+        for (title, keyCode) in hotkeyChoices {
+            let target = MenuItemTarget { [weak self] in
+                var cfg = Config.load()
+                cfg.hotkeys = [HotkeyConfig(keyCode: keyCode, modifiers: [])]
+                try? cfg.save()
+                self?.onConfigChange?(cfg)
+            }
+            menuItemTargets.append(target)
+            let item = NSMenuItem(title: title, action: #selector(MenuItemTarget.invoke), keyEquivalent: "")
+            item.target = target
+            if config.hotkeys == [HotkeyConfig(keyCode: keyCode, modifiers: [])] { item.state = .on }
+            hotkeySubmenu.addItem(item)
+        }
+        hotkeyItem.submenu = hotkeySubmenu
+        menu.addItem(hotkeyItem)
+
         let currentLang = config.language
         let langName = Config.supportedLanguages.first(where: { $0.code == currentLang })?.name ?? currentLang
         let langItem = NSMenuItem(title: "Language: \(langName)", action: nil, keyEquivalent: "")
@@ -282,6 +306,31 @@ class StatusBarController: NSObject {
         toggleItem.target = toggleTarget
         toggleItem.state = (config.toggleMode?.value ?? false) ? .on : .off
         menu.addItem(toggleItem)
+
+        let overlayTarget = MenuItemTarget { [weak self] in
+            var cfg = Config.load()
+            let current = cfg.overlay?.value ?? true
+            cfg.overlay = FlexBool(!current)
+            try? cfg.save()
+            self?.onConfigChange?(cfg)
+        }
+        menuItemTargets.append(overlayTarget)
+        let overlayItem = NSMenuItem(title: "Show Recording Overlay", action: #selector(MenuItemTarget.invoke), keyEquivalent: "")
+        overlayItem.target = overlayTarget
+        overlayItem.state = (config.overlay?.value ?? true) ? .on : .off
+        menu.addItem(overlayItem)
+
+        let standbyTarget = MenuItemTarget { [weak self] in
+            var cfg = Config.load()
+            cfg.standbyBar = FlexBool(!(cfg.standbyBar?.value ?? false))
+            try? cfg.save()
+            self?.onConfigChange?(cfg)
+        }
+        menuItemTargets.append(standbyTarget)
+        let standbyItem = NSMenuItem(title: "Show Standby Bar", action: #selector(MenuItemTarget.invoke), keyEquivalent: "")
+        standbyItem.target = standbyTarget
+        standbyItem.state = (config.standbyBar?.value ?? false) ? .on : .off
+        menu.addItem(standbyItem)
 
         menu.addItem(NSMenuItem.separator())
 
