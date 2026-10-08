@@ -27,7 +27,13 @@ OpenWispr needs microphone access to record speech and Accessibility access to d
 3. Turn on **OpenWispr**. If it is missing, click **+**, choose `~/Applications/OpenWispr.app`, and enable it.
 4. Wait for the OpenWispr menu bar icon to show the waveform and for setup to finish. The default `small` model downloads automatically on first launch.
 
-If OpenWispr remains on its lock icon, quit and reopen the app after enabling Accessibility. Check the log at `~/Library/Logs/OpenWispr/app.log` for the permission and startup status.
+If the lock icon remains even though OpenWispr is enabled, macOS may still hold a permission record for an older build. Reset only OpenWispr's Accessibility record:
+
+```bash
+tccutil reset Accessibility com.human37.open-wispr
+```
+
+Return to **System Settings → Privacy & Security → Accessibility**, click **+**, select `~/Applications/OpenWispr.app`, and turn it on. Wait for the menu bar status to say **Ready**. You can check `~/Library/Logs/OpenWispr/app.log` for startup status.
 
 ## Use
 
@@ -54,4 +60,4 @@ rm -f "$HOME/Library/LaunchAgents/com.human37.open-wispr.plist"
 rm -rf "$HOME/Applications/OpenWispr.app"
 ```
 
-These commands keep your configuration and downloaded models. They are stored in `~/.config/open-wispr/` and `~/Library/Application Support/open-wispr/`.
+These commands keep your configuration and downloaded models in `~/.config/open-wispr/`.
