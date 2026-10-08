@@ -16,6 +16,8 @@ The installer builds the app, places it at `~/Applications/OpenWispr.app`, and s
 
 On first launch, allow microphone access. Then enable **OpenWispr** under **System Settings → Privacy & Security → Accessibility** so it can detect the global hotkey and insert dictated text. The default `small` model downloads automatically on first launch. Wait for the waveform icon in the menu bar before dictating.
 
+If the menu bar stays on a lock icon after enabling Accessibility, follow the [permission refresh steps](docs/install-guide.md#grant-macos-permissions).
+
 For an existing clone, update and reinstall with:
 
 ```bash
@@ -36,7 +38,7 @@ OpenWispr starts when you log in. It runs speech recognition locally; model down
 
 ## Update and uninstall
 
-Pull the latest changes in the clone, then run `./scripts/install-from-source.sh` again. To stop automatic login startup, remove `~/Library/LaunchAgents/com.human37.open-wispr.plist` and log out and back in. To remove the app, quit OpenWispr and delete `~/Applications/OpenWispr.app`. Your settings and downloaded models are stored separately in `~/.config/open-wispr/` and `~/Library/Application Support/open-wispr/`.
+Pull the latest changes in the clone, then run `./scripts/install-from-source.sh` again. To stop automatic login startup, remove `~/Library/LaunchAgents/com.human37.open-wispr.plist` and log out and back in. To remove the app, quit OpenWispr and delete `~/Applications/OpenWispr.app`. Your settings and downloaded models remain in `~/.config/open-wispr/`.
 
 ## Build manually
 

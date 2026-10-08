@@ -107,5 +107,8 @@ icon changes to the waveform when setup is complete. Choose Quit in that menu
 when you want to stop OpenWispr; it stays closed until you open it from the Dock
 or log in again.
 
+If the icon stays locked after enabling Accessibility, see the permission
+refresh steps in docs/install-guide.md.
+
 Logs: $LOG_DIR/app.log
 EOF2
