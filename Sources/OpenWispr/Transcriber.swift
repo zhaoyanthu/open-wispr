@@ -1,16 +1,15 @@
 import Foundation
 
-public class Transcriber {
+class Transcriber {
     private let modelSize: String
     private let language: String
-    public var spokenPunctuation: Bool = false
 
-    public init(modelSize: String = "base.en", language: String = "en") {
+    init(modelSize: String = "small", language: String = "en") {
         self.modelSize = modelSize
         self.language = language
     }
 
-    public func transcribe(audioURL: URL) throws -> String {
+    func transcribe(audioURL: URL) throws -> String {
         guard let whisperPath = Transcriber.findWhisperBinary() else {
             throw TranscriberError.whisperNotFound
         }
@@ -24,78 +23,39 @@ public class Transcriber {
         var args = [
             "-m", modelPath,
             "-f", audioURL.path,
-            "-l", language,
             "--no-timestamps",
             "-nt",
         ]
-        if spokenPunctuation {
-            args += ["--suppress-regex", "[,\\.\\?!;:\\-—]"]
+
+        // auto 模式显式传 -l auto，否则 whisper-cpp 默认英文
+        args += ["-l", language]
+
+        // 中文或自动检测模式：用 initial prompt 引导输出简体中文和标点符号
+        if language == "zh" || language == "auto" {
+            args += ["--prompt", "以下是简体中文的句子，包含标点符号。"]
         }
+
         process.arguments = args
 
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
 
         try process.run()
-
-        var stderrData = Data()
-        let stderrThread = Thread {
-            stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        }
-        stderrThread.start()
-
-        let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        while !stderrThread.isFinished { Thread.sleep(forTimeInterval: 0.01) }
         process.waitUntilExit()
 
-        let output = Transcriber.stripWhisperMarkers(
-            String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        )
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
         if process.terminationStatus != 0 {
-            let stderr = String(data: stderrData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if !stderr.isEmpty { fputs("whisper-cpp: \(stderr)\n", Foundation.stderr) }
             throw TranscriberError.transcriptionFailed
         }
 
-        return output
+        // 追加一个尾随空格，使连续多次听写之间自然分隔
+        return output.isEmpty ? output : output + " "
     }
 
-    private static let knownMarkers: Set<String> = [
-        "BLANK_AUDIO", "blank_audio",
-        "Music", "MUSIC", "music",
-        "Applause", "APPLAUSE", "applause",
-        "Laughter", "LAUGHTER", "laughter",
-        "silence", "Silence", "SILENCE",
-        "SOUND", "Sound", "sound",
-        "NOISE", "Noise", "noise",
-        "INAUDIBLE", "inaudible",
-    ]
-
-    private static let markerRegex = try! NSRegularExpression(
-        pattern: "[\\[\\(]\\s*([^\\]\\)]+?)\\s*[\\]\\)]"
-    )
-
-    public static func stripWhisperMarkers(_ text: String) -> String {
-        let nsText = text as NSString
-        let matches = markerRegex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
-        var result = text
-        for match in matches.reversed() {
-            let innerRange = match.range(at: 1)
-            let inner = nsText.substring(with: innerRange)
-            if knownMarkers.contains(inner) {
-                let fullRange = Range(match.range, in: result)!
-                result.replaceSubrange(fullRange, with: "")
-            }
-        }
-        return result
-            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    public static func findWhisperBinary() -> String? {
+    static func findWhisperBinary() -> String? {
         let candidates = [
             "/opt/homebrew/bin/whisper-cli",
             "/usr/local/bin/whisper-cli",
@@ -130,7 +90,7 @@ public class Transcriber {
         return nil
     }
 
-    public static func modelExists(modelSize: String) -> Bool {
+    static func modelExists(modelSize: String) -> Bool {
         return findModel(modelSize: modelSize) != nil
     }
 

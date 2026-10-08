@@ -10,10 +10,7 @@ mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
 
 cp "$BINARY" "$APP_DIR/Contents/MacOS/open-wispr"
-
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-cp "$REPO_DIR/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
+cp "$(dirname "$0")/../Resources/OpenWispr.icns" "$APP_DIR/Contents/Resources/OpenWispr.icns"
 
 cat > "$APP_DIR/Contents/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -28,6 +25,8 @@ cat > "$APP_DIR/Contents/Info.plist" << PLIST
     <string>OpenWispr</string>
     <key>CFBundleDisplayName</key>
     <string>OpenWispr</string>
+    <key>CFBundleIconFile</key>
+    <string>OpenWispr.icns</string>
     <key>CFBundleVersion</key>
     <string>${VERSION}</string>
     <key>CFBundleShortVersionString</key>
@@ -36,10 +35,6 @@ cat > "$APP_DIR/Contents/Info.plist" << PLIST
     <string>APPL</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
-    <key>CFBundleIconFile</key>
-    <string>AppIcon</string>
-    <key>LSUIElement</key>
-    <true/>
     <key>NSMicrophoneUsageDescription</key>
     <string>OpenWispr needs microphone access to record speech for transcription.</string>
 </dict>

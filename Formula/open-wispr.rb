@@ -17,12 +17,14 @@ class OpenWispr < Formula
   def post_install
     target = Pathname.new("#{Dir.home}/Applications/OpenWispr.app")
     target.dirname.mkpath
-    rm_rf target if target.exist? && !target.symlink?
-    ln_sf prefix/"OpenWispr.app", target
+    target.rmtree if target.exist?
+    cp_r prefix/"OpenWispr.app", target
+    system "codesign", "--remove-signature", "#{target}/Contents/MacOS/open-wispr"
+    system "tccutil", "reset", "Accessibility", "com.human37.open-wispr"
   end
 
   service do
-    run [opt_prefix/"OpenWispr.app/Contents/MacOS/open-wispr", "start"]
+    run ["#{Dir.home}/Applications/OpenWispr.app/Contents/MacOS/open-wispr", "start"]
     keep_alive successful_exit: false
     log_path var/"log/open-wispr.log"
     error_log_path var/"log/open-wispr.log"
@@ -31,14 +33,12 @@ class OpenWispr < Formula
 
   def caveats
     <<~EOS
-      Recommended: use the install script for guided setup:
-        curl -fsSL https://raw.githubusercontent.com/human37/open-wispr/main/scripts/install.sh | bash
+      This Homebrew formula installs the upstream release. To install the
+      fork-specific menu, overlay, and login behavior, build this repository:
+        git clone https://github.com/zhaoyanthu/open-wispr.git
+        cd open-wispr && ./scripts/install-from-source.sh
 
-      Or start manually:
-        brew services start open-wispr
-
-      Grant Accessibility and Microphone when prompted.
-      The Whisper model downloads automatically (~142 MB).
+      Grant Microphone and Accessibility access when macOS asks.
     EOS
   end
 

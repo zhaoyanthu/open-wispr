@@ -14,10 +14,10 @@ TAP_DIR="/tmp/homebrew-open-wispr"
 
 echo "==> Deploying open-wispr ${TAG}"
 
-current=$(grep 'static let version' "${REPO_DIR}/Sources/OpenWisprLib/Version.swift" | sed 's/.*"\(.*\)".*/\1/')
+current=$(grep 'static let version' "${REPO_DIR}/Sources/OpenWispr/main.swift" | sed 's/.*"\(.*\)".*/\1/')
 if [ "$current" != "$VERSION" ]; then
-  echo "Error: Version.swift version is ${current}, expected ${VERSION}"
-  echo "Update Sources/OpenWisprLib/Version.swift first."
+  echo "Error: main.swift version is ${current}, expected ${VERSION}"
+  echo "Update Sources/OpenWispr/main.swift first."
   exit 1
 fi
 
@@ -42,27 +42,13 @@ git -C "${TAP_DIR}" diff --cached --quiet && echo "Tap already up to date." || \
   git -C "${TAP_DIR}" commit -m "Bump to ${TAG}"
 git -C "${TAP_DIR}" push origin main
 
-echo "==> Generating release notes..."
-PREV_TAG=$(git -C "${REPO_DIR}" describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-if [ -n "$PREV_TAG" ]; then
-  COMMITS=$(git -C "${REPO_DIR}" log "${PREV_TAG}..HEAD" --pretty=format:"- %s" --no-merges)
-else
-  COMMITS=$(git -C "${REPO_DIR}" log --pretty=format:"- %s" --no-merges -20)
-fi
-
-NOTES=$(claude -p "You are writing release notes for open-wispr ${TAG}, a local voice dictation app for macOS. Here are the commits since the last release:
-
-${COMMITS}
-
-Write concise GitHub release notes in markdown. Use these sections only if relevant: ### What's New, ### Bug Fixes, ### Other Changes. Use bullet points. Don't include commit hashes. Keep it short and user-facing -- skip internal/dev-only changes. Always end with an ### Upgrade section containing a code block with: brew update && brew upgrade open-wispr && brew services restart open-wispr")
-
 echo "==> Creating GitHub Release..."
-gh release create "${TAG}" --repo human37/open-wispr --notes "${NOTES}"
+gh release create "${TAG}" --generate-notes --repo human37/open-wispr
 
 echo "==> Waiting for bottle builds..."
 sleep 15
 RUN_ID=""
-for _ in $(seq 1 30); do
+for i in $(seq 1 30); do
   RUN_ID=$(gh run list --workflow=build-bottle.yml --event=release --limit=1 --json databaseId --jq '.[0].databaseId' --repo human37/open-wispr 2>/dev/null)
   if [ -n "$RUN_ID" ]; then
     break
@@ -81,4 +67,4 @@ fi
 
 echo ""
 echo "==> Deployed ${TAG}"
-echo "Users can update with: brew update && brew upgrade open-wispr && brew services restart open-wispr"
+echo "Users can update with: brew update && brew upgrade open-wispr"

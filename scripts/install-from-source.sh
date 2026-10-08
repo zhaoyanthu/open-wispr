@@ -40,8 +40,8 @@ if ! brew list --versions whisper-cpp >/dev/null 2>&1; then
     brew install whisper-cpp
 fi
 
-VERSION="$(sed -nE 's/^[[:space:]]*public static let version = "([^"]+)"/\1/p' "$REPO_ROOT/Sources/OpenWisprLib/Version.swift" | head -1)"
-[[ -n "$VERSION" ]] || fail "Could not read the application version from Sources/OpenWisprLib/Version.swift."
+VERSION="$(sed -nE 's/^[[:space:]]*static let version = "([^"]+)"/\1/p' "$REPO_ROOT/Sources/OpenWispr/main.swift" | head -1)"
+[[ -n "$VERSION" ]] || fail "Could not read the application version from Sources/OpenWispr/main.swift."
 
 printf 'Building OpenWispr %s...\n' "$VERSION"
 swift build --package-path "$REPO_ROOT" -c release
