@@ -1,25 +1,32 @@
 import AppKit
 import Foundation
-import OpenWisprLib
 
 setvbuf(stdout, nil, _IOLBF, 0)
 setvbuf(stderr, nil, _IOLBF, 0)
+
+enum OpenWispr {
+    static let version = "0.11.8"
+}
 
 let version = OpenWispr.version
 
 func printUsage() {
     print("""
-    open-wispr v\(version) — Push-to-talk voice dictation for macOS
+    open-wispr v\(version) — Voice dictation for macOS
 
     USAGE:
         open-wispr start              Start the dictation daemon
-        open-wispr set-hotkey <key>   Set the push-to-talk hotkey
+        open-wispr set-hotkey <key>   Set the hotkey
         open-wispr get-hotkey         Show current hotkey
+        open-wispr set-mode <mode>    Set recording mode: toggle or hold
         open-wispr set-model <size>   Set the Whisper model
-        open-wispr set-language <code>  Set the language (e.g. en, fr, auto)
         open-wispr download-model [size]  Download a Whisper model
         open-wispr status             Show configuration and status
         open-wispr --help             Show this help message
+
+    RECORDING MODES:
+        toggle    Tap the hotkey to start, tap again to stop (default)
+        hold      Push-to-talk: hold the hotkey while speaking
 
     HOTKEY EXAMPLES:
         open-wispr set-hotkey globe             Globe/fn key (default)
@@ -28,13 +35,13 @@ func printUsage() {
         open-wispr set-hotkey ctrl+space         Ctrl + Space
 
     AVAILABLE MODELS:
-        \(Config.supportedModels.joined(separator: ", "))
+        tiny.en, tiny, base.en, base, small.en, small, medium.en, medium, large
     """)
 }
 
 func cmdStart() {
     let app = NSApplication.shared
-    app.setActivationPolicy(.accessory)
+    app.setActivationPolicy(.regular)
 
     let delegate = AppDelegate()
     app.delegate = delegate
@@ -68,9 +75,10 @@ func cmdSetHotkey(_ keyString: String) {
 }
 
 func cmdSetModel(_ size: String) {
-    guard Config.supportedModels.contains(size) else {
+    let validSizes = ["tiny.en", "tiny", "base.en", "base", "small.en", "small", "medium.en", "medium", "large"]
+    guard validSizes.contains(size) else {
         print("Error: Unknown model '\(size)'")
-        print("Available: \(Config.supportedModels.joined(separator: ", "))")
+        print("Available: \(validSizes.joined(separator: ", "))")
         exit(1)
     }
 
@@ -89,22 +97,21 @@ func cmdSetModel(_ size: String) {
     }
 }
 
-func cmdSetLanguage(_ lang: String) {
-    let validCodes = Config.supportedLanguages.map { $0.code }
-    guard validCodes.contains(lang) else {
-        print("Error: Unknown language '\(lang)'")
-        print("Available: auto, en, fr, de, es, zh, ja, ko, pt, it, nl, ru, ...")
-        print("See full list: https://github.com/human37/open-wispr")
+func cmdSetMode(_ mode: String) {
+    let normalized = mode.lowercased()
+    guard normalized == "toggle" || normalized == "hold" else {
+        print("Error: Unknown mode '\(mode)'")
+        print("Available: toggle, hold")
         exit(1)
     }
 
     var config = Config.load()
-    config.language = lang
+    config.recordingMode = normalized
 
     do {
         try config.save()
-        let name = Config.supportedLanguages.first(where: { $0.code == lang })?.name ?? lang
-        print("Language set to: \(name) (\(lang))")
+        print("Recording mode set to: \(normalized)")
+        print("Restart open-wispr for it to take effect (brew services restart open-wispr).")
     } catch {
         print("Error saving config: \(error.localizedDescription)")
         exit(1)
@@ -113,7 +120,7 @@ func cmdSetLanguage(_ lang: String) {
 
 func cmdGetHotkey() {
     let config = Config.load()
-    let desc = config.hotkeySummary()
+    let desc = KeyCodes.describe(keyCode: config.hotkey.keyCode, modifiers: config.hotkey.modifiers)
     print("Current hotkey: \(desc)")
 }
 
@@ -128,34 +135,23 @@ func cmdDownloadModel(_ size: String) {
 
 func cmdStatus() {
     let config = Config.load()
-    let hotkeyDesc = config.hotkeySummary()
+    let hotkeyDesc = KeyCodes.describe(keyCode: config.hotkey.keyCode, modifiers: config.hotkey.modifiers)
 
     print("open-wispr v\(version)")
     print("Config:      \(Config.configFile.path)")
     print("Hotkey:      \(hotkeyDesc)")
+    print("Mode:        \(config.isToggleMode ? "toggle" : "hold")")
     print("Model:       \(config.modelSize)")
     print("Model ready: \(Transcriber.modelExists(modelSize: config.modelSize) ? "yes" : "no")")
     print("whisper-cpp: \(Transcriber.findWhisperBinary() != nil ? "yes" : "no")")
-    let langName = Config.supportedLanguages.first(where: { $0.code == config.language })?.name ?? config.language
-    print("Language:    \(langName) (\(config.language))")
-    let toggleMode = config.toggleMode?.value ?? false
-    print("Toggle:      \(toggleMode ? "on (press to start/stop)" : "off (hold to talk)")")
-    let overlay = config.overlay?.value ?? true
-    print("Overlay:     \(overlay ? "on" : "off")")
 }
 
 let args = CommandLine.arguments
 let rawCommand = args.count > 1 ? args[1] : nil
-let command: String? = {
-    if let r = rawCommand, r.hasPrefix("-psn_") { return "start" }
-    return rawCommand
-}()
+let command = rawCommand?.hasPrefix("-psn_") == true ? "start" : rawCommand
 
 switch command {
 case "start":
-    if AppBundleLaunch.relaunchThroughAppBundleIfNeeded() {
-        exit(0)
-    }
     cmdStart()
 case "set-hotkey":
     guard args.count > 2 else {
@@ -169,24 +165,23 @@ case "set-model":
         exit(1)
     }
     cmdSetModel(args[2])
-case "set-language":
+case "set-mode":
     guard args.count > 2 else {
-        print("Usage: open-wispr set-language <code>")
-        print("Examples: en, fr, auto")
+        print("Usage: open-wispr set-mode <toggle|hold>")
         exit(1)
     }
-    cmdSetLanguage(args[2])
+    cmdSetMode(args[2])
 case "get-hotkey":
     cmdGetHotkey()
 case "download-model":
-    let size = args.count > 2 ? args[2] : "base.en"
+    let size = args.count > 2 ? args[2] : "small"
     cmdDownloadModel(size)
 case "status":
     cmdStatus()
 case "--help", "-h", "help":
     printUsage()
 case nil:
-    printUsage()
+    cmdStart()
 default:
     print("Unknown command: \(command!)")
     printUsage()

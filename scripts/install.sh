@@ -11,10 +11,16 @@ NC='\033[0m'
 
 SPINNER_FRAMES=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
 SPIN_PID=""
-LOG=/opt/homebrew/var/log/open-wispr.log
+LOG=$(mktemp /tmp/open-wispr-install.XXXXXX)
+APP_PID=""
 
 cleanup() {
     stop_spin
+    if [ -n "$APP_PID" ]; then
+        kill "$APP_PID" 2>/dev/null
+        wait "$APP_PID" 2>/dev/null
+    fi
+    rm -f "$LOG"
 }
 trap cleanup EXIT
 
@@ -83,113 +89,10 @@ die() {
     exit 1
 }
 
-restore_formula() {
-    if [ -n "$VERSION" ] && [ -n "$TAP_DIR" ]; then
-        git -C "$TAP_DIR" checkout main -- open-wispr.rb 2>/dev/null || true
-    fi
-}
-
-is_homebrew_trust_error() {
-    local output="$1"
-    printf "%s\n" "$output" | grep -Eiq "(tap.*not trusted|formula.*not trusted|not trusted.*(tap|formula)|untrusted (tap|formula)|brew trust --(formula|tap))"
-}
-
-homebrew_trust_command() {
-    local output="$1"
-    local trust_command
-
-    trust_command=$(
-        printf "%s\n" "$output" |
-            grep -Eo "brew trust --(formula|tap)[[:space:]]+[^[:space:]]+" |
-            head -n 1 |
-            tr -d '`'
-    )
-    trust_command="${trust_command%.}"
-    trust_command="${trust_command%,}"
-
-    if [ -n "$trust_command" ]; then
-        printf "%s\n" "$trust_command"
-    else
-        printf "brew trust --formula human37/open-wispr/open-wispr\n"
-    fi
-}
-
-die_homebrew_trust_error() {
-    local output="$1"
-    local trust_command
-
-    stop_spin
-    restore_formula
-
-    fail "Homebrew requires trust before installing open-wispr."
-    printf "\n"
-    info "Homebrew reported:"
-    while IFS= read -r line; do
-        [ -n "$line" ] && info "$line"
-    done <<< "$output"
-
-    trust_command="$(homebrew_trust_command "$output")"
-
-    printf "\n"
-    info "If you trust human37/open-wispr, run:"
-    printf "\n"
-    printf "  ${BOLD}%s${NC}\n" "$trust_command"
-    printf "\n"
-    info "Then re-run this installer."
-    exit 1
-}
-
-run_brew_install_step() {
-    local action="$1"
-    local output
-    local status
-
-    output=$(brew "$action" open-wispr </dev/null 2>&1)
-    status=$?
-    if [ "$status" -ne 0 ] && is_homebrew_trust_error "$output"; then
-        die_homebrew_trust_error "$output"
-    fi
-}
-
-# ── Parse arguments ──────────────────────────────────────────────────
-VERSION=""
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --version|-v)
-            VERSION="$2"
-            shift 2
-            ;;
-        *)
-            printf "Usage: install.sh [--version <version>]\n"
-            exit 1
-            ;;
-    esac
-done
-
 # ── Header ────────────────────────────────────────────────────────────
 printf "\n"
 printf "  ${BOLD}open-wispr${NC} ${DIM}— local voice dictation for macOS${NC}\n"
 printf "  ${DIM}────────────────────────────────────────────${NC}\n"
-
-# ── Prerequisites ────────────────────────────────────────────────────
-step "Checking prerequisites"
-
-if [[ "$(uname -m)" != "arm64" ]]; then
-    fail "Apple Silicon (M1 or later) is required."
-    die "open-wispr uses Metal GPU acceleration which is not available on Intel Macs."
-fi
-ok "Apple Silicon"
-
-if ! command -v brew &>/dev/null; then
-    fail "Homebrew is not installed."
-    printf "\n"
-    info "Install it by running:"
-    printf "\n"
-    printf "  ${BOLD}/bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"${NC}\n"
-    printf "\n"
-    die "Then re-run this script."
-fi
-ok "Homebrew"
 
 # ── Step 1: Clean up ─────────────────────────────────────────────────
 if brew list open-wispr &>/dev/null || [ -d ~/Applications/OpenWispr.app ]; then
@@ -200,7 +103,6 @@ if brew list open-wispr &>/dev/null || [ -d ~/Applications/OpenWispr.app ]; then
     brew uninstall --force open-wispr </dev/null >/dev/null 2>&1 || true
     brew untap human37/open-wispr </dev/null >/dev/null 2>&1 || true
     tccutil reset Accessibility com.human37.open-wispr </dev/null >/dev/null 2>&1 || true
-    tccutil reset Microphone com.human37.open-wispr </dev/null >/dev/null 2>&1 || true
     rm -rf ~/Applications/OpenWispr.app
 
     stop_spin
@@ -211,29 +113,15 @@ fi
 step "Installing"
 
 start_spin "Tapping human37/open-wispr..."
-TAP_OUT=$(brew tap human37/open-wispr --force </dev/null 2>&1) || {
-    stop_spin
-    fail "Failed to tap human37/open-wispr"
-    info "$TAP_OUT"
-    die "Make sure git is installed."
-}
+if ! brew tap human37/open-wispr </dev/null >/dev/null 2>&1; then
+    die "Failed to tap. Check your internet connection."
+fi
 stop_spin
 ok "Tapped ${DIM}human37/open-wispr${NC}"
 
-TAP_DIR="$(brew --repository human37/open-wispr 2>/dev/null)"
-if [ -n "$VERSION" ]; then
-    FORMULA_COMMIT=$(git -C "$TAP_DIR" log --all --grep="v${VERSION}" --format=%H -1)
-    if [ -z "$FORMULA_COMMIT" ]; then
-        die "Version ${VERSION} not found in tap history"
-    fi
-    git -C "$TAP_DIR" checkout "$FORMULA_COMMIT" -- open-wispr.rb 2>/dev/null
-fi
-
-start_spin "Installing open-wispr${VERSION:+ v$VERSION}..."
-run_brew_install_step install
-run_brew_install_step reinstall
-
-restore_formula
+start_spin "Installing open-wispr..."
+brew install open-wispr </dev/null >/dev/null 2>&1 || true
+brew reinstall open-wispr </dev/null >/dev/null 2>&1 || true
 stop_spin
 
 BREW_PREFIX="$(brew --prefix open-wispr 2>/dev/null)"
@@ -246,19 +134,20 @@ ok "Installed"
 
 mkdir -p ~/Applications
 rm -rf ~/Applications/OpenWispr.app
-ln -sf "${BREW_PREFIX}/OpenWispr.app" ~/Applications/OpenWispr.app
+cp -R "${BREW_PREFIX}/OpenWispr.app" ~/Applications/OpenWispr.app
+APP_BIN=~/Applications/OpenWispr.app/Contents/MacOS/open-wispr
 
 # ── Step 3: Permissions ──────────────────────────────────────────────
 step "Setting up permissions"
 info "Starting app to request permissions...\n"
 
-true > "$LOG" 2>/dev/null || true
-brew services start open-wispr </dev/null >/dev/null 2>&1 || true
+"$APP_BIN" start </dev/null > "$LOG" 2>&1 &
+APP_PID=$!
 
-sleep 2
-if ! brew services list 2>/dev/null | grep -q "open-wispr.*started"; then
-    fail "Service failed to start"
-    die "Check: brew services start open-wispr"
+sleep 1
+if ! kill -0 "$APP_PID" 2>/dev/null; then
+    fail "App crashed on startup"
+    die "Check: $APP_BIN start"
 fi
 
 if ! wait_for_log "Microphone:" 30 "Requesting microphone access..."; then
@@ -306,14 +195,22 @@ if ! grep -q "Ready\." "$LOG" 2>/dev/null; then
     fi
 fi
 
-# ── Step 6: Verify service ───────────────────────────────────────────
+# ── Step 6: Switch to service ────────────────────────────────────────
+kill "$APP_PID" 2>/dev/null
+wait "$APP_PID" 2>/dev/null
+APP_PID=""
+
+step "Starting background service"
+start_spin "Starting..."
+brew services start open-wispr </dev/null >/dev/null 2>&1 || true
+stop_spin
+
+sleep 1
 if brew services list 2>/dev/null | grep -q "open-wispr.*started"; then
     ok "Running as background service"
 else
-    start_spin "Restarting service..."
-    brew services restart open-wispr </dev/null >/dev/null 2>&1 || true
-    stop_spin
-    ok "Service restarted"
+    ok "Service registered"
+    info "If not running, start manually: brew services start open-wispr"
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────
@@ -329,7 +226,5 @@ printf "\n"
 [ -n "$hotkey" ]  && printf "  Hotkey  ${BOLD}%s${NC}\n" "$hotkey"
 [ -n "$model" ]   && printf "  Model   ${BOLD}%s${NC}\n" "$model"
 printf "\n"
-printf "  Hold your hotkey, speak, release -- text appears at cursor.\n"
-printf "\n"
-printf "  ${DIM}If you want to support development: ${BLUE}https://buy.stripe.com/4gM5kC2AU0Ssd4l6Hqd7q00${NC}\n"
+printf "  Hold your hotkey, speak, release — text appears at cursor.\n"
 printf "\n"
