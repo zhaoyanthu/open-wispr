@@ -31,7 +31,7 @@ git pull --ff-only
 - Fresh installs automatically detect the spoken language. To force a language, set `"language": "en"` or `"language": "zh"` in `~/.config/open-wispr/config.json`, then restart OpenWispr.
 - Choose **Hotkey** in the menu bar to select Fn/Globe, Right Option, F5, or Right Command. If Fn is assigned to emoji or input-language switching on your Mac, disable that assignment in Keyboard or your input method settings.
 - Choose **Model** to switch Whisper models. Missing models download when selected. The default is `small`, which supports English, Chinese, and other languages.
-- Choose **Show Standby Bar** to show or hide the optional translucent bar. Drag it to move it, double-click to reset its position, or hover and click × to hide it.
+- Choose **Show Standby Bar** to show or hide the optional translucent bar. Drag it to move it, double-click to reset its position, or hover and click × to hide it. The larger recording waveform still appears over full-screen apps when the standby bar is hidden.
 - Choose **Quit** in the menu bar to keep the app closed for the rest of the current login session. Opening OpenWispr from the Dock starts it again.
 
 OpenWispr starts when you log in. It runs speech recognition locally; model downloads are the only network activity.
