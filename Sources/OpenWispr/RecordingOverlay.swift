@@ -77,13 +77,14 @@ class RecordingOverlay: NSObject, NSWindowDelegate {
     }
 
     private func refresh() {
-        guard isRecording || (isReady && idleBarEnabled) else {
+        guard isRecording || isReady else {
             visualizer?.isActive = false
             window?.orderOut(nil)
             return
         }
         buildIfNeeded()
         guard let window = window, let screen = window.screen ?? NSScreen.main else { return }
+        let isVisible = isRecording || idleBarEnabled
         let size = isRecording ? Self.overlaySize : Self.idleSize
         let frame = screen.visibleFrame
         let saved = Config.load().overlayPosition
@@ -96,6 +97,8 @@ class RecordingOverlay: NSObject, NSWindowDelegate {
         window.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: false)
         isPositioning = false
         window.hasShadow = isRecording
+        window.alphaValue = isVisible ? 1 : 0
+        window.ignoresMouseEvents = !isVisible
         if isRecording {
             visualizer?.frame = NSRect(origin: .zero, size: size)
             window.contentView = visualizer
@@ -104,6 +107,8 @@ class RecordingOverlay: NSObject, NSWindowDelegate {
             window.contentView = idleView
         }
         visualizer?.isActive = isRecording
+        // Keep the transparent panel in every Space even when standby is off.
+        // Reordering a closed panel during recording can miss a full-screen Space.
         window.orderFrontRegardless()
         window.contentView?.needsDisplay = true
     }
@@ -150,15 +155,20 @@ class RecordingOverlay: NSObject, NSWindowDelegate {
             backing: .buffered, defer: false
         )
         panel.isFloatingPanel = true
-        panel.level = .statusBar
+        // Full-screen apps sit above status-bar windows on macOS. Keep the
+        // indicator visible without making it activate or leave their Space.
+        panel.level = .screenSaver
         panel.backgroundColor = .clear
         panel.isOpaque = false
-        panel.hasShadow = true
-        panel.ignoresMouseEvents = false
+        panel.hasShadow = false
+        panel.alphaValue = 0
+        panel.ignoresMouseEvents = true
         panel.isMovableByWindowBackground = true
         panel.delegate = self
         panel.hidesOnDeactivate = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        panel.collectionBehavior = [
+            .canJoinAllSpaces, .canJoinAllApplications, .fullScreenAuxiliary, .stationary
+        ]
         window = panel
         visualizer = VisualizerView(frame: NSRect(origin: .zero, size: Self.overlaySize))
         idleView = IdleBarView(frame: NSRect(origin: .zero, size: Self.idleSize))
